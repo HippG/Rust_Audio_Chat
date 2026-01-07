@@ -1,0 +1,4 @@
+1. Vérifier qu'on sait lire de l'audio côté client sur les 2 PC
+2. Vérifier qu'on sait lire la voix du micro
+3. Faire un serveur basique sur lequel se connectent 2 clients sur le même réseau
+4. Voir comment on passe l'audio du micro sur le serveur, et comment on le répartit entre les clients (max 2 clients ou alors une grosse pool on tous les clients balancent leurs audios et lisent ceux de tout le monde)
