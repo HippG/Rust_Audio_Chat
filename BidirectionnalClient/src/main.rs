@@ -14,7 +14,7 @@ const SAMPLE_RATE: u32 = 48000;
 const FRAME_SIZE_MS: u32 = 20;
 const FRAME_SIZE: usize = (SAMPLE_RATE as usize * FRAME_SIZE_MS as usize) / 1000;
 
-// Unified Audio Processor
+// audio processor
 struct AudioProcessor<P, C> {
     in_port: Port<AudioIn>,
     out_port: Port<AudioOut>,
@@ -75,6 +75,7 @@ impl rustls::client::danger::ServerCertVerifier for SkipServerVerification {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
+    // on récupère l'ip serveur passé en argument
     let args: Vec<String> = std::env::args().collect();
     let server_addr = if args.len() > 1 {
         args[1].clone()
@@ -82,14 +83,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
         "127.0.0.1:8047".to_string()
     };
 
-    // Generate unique Client ID
+    // client ID random associé aux paquets audio
     let mut rng = rand::thread_rng();
     let my_id: u64 = rng.gen();
-    println!("🆔 Client ID: {:016X}", my_id);
+    println!("Client ID: {:}", my_id);
 
-    println!("🚀 Connecting to {}", server_addr);
+    println!("Connecting to {}", server_addr);
 
-    // QUIC Config
+    // QUIC config
     let mut crypto = rustls::ClientConfig::builder()
         .dangerous()
         .with_custom_certificate_verifier(Arc::new(SkipServerVerification))
@@ -106,21 +107,22 @@ async fn main() -> Result<(), Box<dyn Error>> {
     endpoint.set_default_client_config(client_config);
 
     let connection = endpoint.connect(server_addr.parse()?, "localhost")?.await?;
-    println!("✅ Connected via QUIC");
+    println!("Connected to server");
 
-    // JACK
-    let (client, _status) = Client::new("BidirectionnalClient", ClientOptions::NO_START_SERVER)?;
-    let in_port = client.register_port("input", AudioIn::default())?;
-    let out_port = client.register_port("output", AudioOut::default())?;
+    // JACK config
+    let (client, _status) = Client::new("AudioClient", ClientOptions::NO_START_SERVER)?; // on redémarre pas le serveur pw qui tourne au démarrage linux
+
+    let in_port_name = "input";
+    let out_port_name = "output";
+
+    let in_port = client.register_port(in_port_name, AudioIn::default())?;
+    let out_port = client.register_port(out_port_name, AudioOut::default())?;
 
     let capture_rb = HeapRb::<f32>::new(48000 * 2);
     let (mut cap_prod, mut cap_cons) = capture_rb.split();
 
     let playback_rb = HeapRb::<f32>::new(48000 * 2);
     let (mut play_prod, play_cons) = playback_rb.split();
-
-    let in_port_name = in_port.name()?.to_string();
-    let out_port_name = out_port.name()?.to_string();
 
     let process = AudioProcessor { 
         in_port, 
@@ -130,52 +132,50 @@ async fn main() -> Result<(), Box<dyn Error>> {
     };
     let active_client = client.activate_async((), process)?;
 
-    // Auto-connect ports
-    // Connect System Capture -> Client Input
+    // on fait automatiquement les linkage avec les entrées/sorties audio par défaut
     let system_captures = active_client.as_client().ports(Some("system:capture_.*"), None, PortFlags::empty());
     for (i, port_name) in system_captures.iter().enumerate() {
         if i >= 1 { break; } 
-        println!("🔗 Connecting {} -> {}", port_name, in_port_name);
+        println!("Connecting {} -> {}", port_name, in_port_name);
         if let Err(e) = active_client.as_client().connect_ports_by_name(port_name, &in_port_name) {
             eprintln!("Failed to connect input: {}", e);
         }
     }
 
-    // Connect Client Output -> System Playback
     let system_playbacks = active_client.as_client().ports(Some("system:playback_.*"), None, PortFlags::empty());
     for port_name in system_playbacks.iter() {
-        println!("🔗 Connecting {} -> {}", out_port_name, port_name);
+        println!("Connecting {} -> {}", out_port_name, port_name);
         if let Err(e) = active_client.as_client().connect_ports_by_name(&out_port_name, port_name) {
             eprintln!("Failed to connect output: {}", e);
         }
     }
 
-    // Audio Loop
+    // opus encoder/decoder
     let mut encoder = Encoder::new(SAMPLE_RATE, Channels::Mono, Application::Voip).unwrap();
     let mut decoder = Decoder::new(SAMPLE_RATE, Channels::Mono).unwrap();
     
     let mut pcm_in = vec![0.0; FRAME_SIZE];
     let mut pcm_out = vec![0.0; FRAME_SIZE];
-    let mut encode_buf = vec![0u8; 1500];
+    let mut encode_buf = vec![0u8; 1500]; // 1500 bytes, taille du paquet réseau
 
-    // Split connection for send/recv tasks
+    // split de la connection pour send/recv
     let conn_send = connection.clone();
     let conn_recv = connection.clone();
 
-    // 1. Send Task (Capture -> Encode -> ID -> Send)
+    // SEND
     let send_task = tokio::spawn(async move {
-        println!("🎙️ Capture started");
+        println!("Audio capture started");
         loop {
-            // Check if we have enough samples
+            // Vérif si on a assez de samples
             if cap_cons.occupied_len() >= FRAME_SIZE {
                 cap_cons.pop_slice(&mut pcm_in);
                 match encoder.encode_float(&pcm_in, &mut encode_buf) {
                     Ok(len) => {
-                        // Prepend ID (8 bytes) + Packet
+                        // Ajout du client ID avant le paquet audio
                         let mut final_packet = Vec::with_capacity(8 + len);
                         final_packet.extend_from_slice(&my_id.to_le_bytes()); // ID
                         final_packet.extend_from_slice(&encode_buf[..len]);   // Audio
-
+                        // Envoi du paquet
                         let _ = conn_send.send_datagram(final_packet.into());
                     }
                     Err(e) => eprintln!("Encode error: {}", e),
@@ -186,17 +186,18 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }
     });
 
-    // 2. Recv Task (Recv -> Parse ID -> Filter -> Decode -> Play)
+    // RECEIVE
     let recv_task = tokio::spawn(async move {
-        println!("🔊 Playback started");
+        println!("Playback started");
         loop {
             match conn_recv.read_datagram().await {
                 Ok(data) => {
                     if data.len() > 8 {
                         let sender_id = LittleEndian::read_u64(&data[0..8]);
-                        
+
+                        // Check si le paquet ne vient pas de nous
                         if sender_id != my_id {
-                            // Valid packet from DIFFERENT user
+                            // Si oui, on décode après le client ID
                             let audio_data = &data[8..];
                             match decoder.decode_float(audio_data, &mut pcm_out, false) {
                                 Ok(len) => {
@@ -216,6 +217,5 @@ async fn main() -> Result<(), Box<dyn Error>> {
     });
 
     let _ = tokio::join!(send_task, recv_task);
-    // active_client.deactivate()?;
     Ok(())
 }
