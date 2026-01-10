@@ -9,6 +9,10 @@ use quinn::{ClientConfig, Endpoint, TransportConfig};
 use std::error::Error;
 use rand::Rng;
 use byteorder::{ByteOrder, LittleEndian};
+use std::sync::Mutex;
+mod interface;
+use interface::{AppState, ClientInfo};
+use std::io::{self, Write};
 
 const SAMPLE_RATE: u32 = 48000;
 const FRAME_SIZE_MS: u32 = 20;
@@ -76,11 +80,30 @@ impl rustls::client::danger::ServerCertVerifier for SkipServerVerification {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     // on récupère l'ip serveur passé en argument
+    // on récupère l'ip serveur passé en argument
     let args: Vec<String> = std::env::args().collect();
     let server_addr = if args.len() > 1 {
         args[1].clone()
     } else {
         "127.0.0.1:8047".to_string()
+    };
+    
+    // Web Port
+    let web_port = if args.len() > 2 {
+        args[2].parse().unwrap_or(3000)
+    } else {
+        3000
+    };
+
+    // Pseudonym
+    let my_name = if args.len() > 3 {
+        args[3].clone()
+    } else {
+        print!("Enter your pseudonym: ");
+        io::stdout().flush()?;
+        let mut buffer = String::new();
+        io::stdin().read_line(&mut buffer)?;
+        buffer.trim().to_string()
     };
 
     // client ID random associé aux paquets audio
@@ -108,6 +131,27 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let connection = endpoint.connect(server_addr.parse()?, "localhost")?.await?;
     println!("Connected to server");
+
+    // Initialize App State
+    let app_state = AppState {
+        clients: Arc::new(Mutex::new(Vec::new())),
+        is_muted: Arc::new(Mutex::new(false)),
+    };
+
+    // Start Web Server
+    let web_state = app_state.clone();
+    tokio::spawn(async move {
+        interface::start_web_server(web_state, web_port).await;
+    });
+
+    // Send Indentify Packet
+    // Packet Type 0x02: [Type(1)] + [ID(8)] + [Name(UTF8)]
+    let name_bytes = my_name.as_bytes();
+    let mut id_packet = Vec::with_capacity(1 + 8 + name_bytes.len());
+    id_packet.push(0x02);
+    id_packet.extend_from_slice(&my_id.to_le_bytes());
+    id_packet.extend_from_slice(name_bytes);
+    connection.send_datagram(id_packet.into())?;
 
     // JACK config
     let (client, _status) = Client::new("AudioClient", ClientOptions::NO_START_SERVER)?; // on redémarre pas le serveur pw qui tourne au démarrage linux
@@ -163,7 +207,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let conn_recv = connection.clone();
 
     // SEND
+    let app_state_send = app_state.clone();
     let send_task = tokio::spawn(async move {
+        let app_state = app_state_send; // capture name
         println!("Audio capture started");
         loop {
             // Vérif si on a assez de samples
@@ -172,11 +218,20 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 match encoder.encode_float(&pcm_in, &mut encode_buf) {
                     Ok(len) => {
                         // Ajout du client ID avant le paquet audio
-                        let mut final_packet = Vec::with_capacity(8 + len);
-                        final_packet.extend_from_slice(&my_id.to_le_bytes()); // ID
-                        final_packet.extend_from_slice(&encode_buf[..len]);   // Audio
-                        // Envoi du paquet
-                        let _ = conn_send.send_datagram(final_packet.into());
+                        // Ajout du client ID avant le paquet audio
+                        // Packet Type 0x01: [Type(1)] + [ID(8)] + [Opus Data]
+                        
+                        // Check Mute
+                        let is_muted = *app_state.is_muted.lock().unwrap();
+                        
+                        if !is_muted {
+                            let mut final_packet = Vec::with_capacity(1 + 8 + len);
+                            final_packet.push(0x01); // Audio Type
+                            final_packet.extend_from_slice(&my_id.to_le_bytes()); // ID
+                            final_packet.extend_from_slice(&encode_buf[..len]);   // Audio
+                            // Envoi du paquet
+                            let _ = conn_send.send_datagram(final_packet.into());
+                        }
                     }
                     Err(e) => eprintln!("Encode error: {}", e),
                 }
@@ -192,19 +247,30 @@ async fn main() -> Result<(), Box<dyn Error>> {
         loop {
             match conn_recv.read_datagram().await {
                 Ok(data) => {
-                    if data.len() > 8 {
-                        let sender_id = LittleEndian::read_u64(&data[0..8]);
-
-                        // Check si le paquet ne vient pas de nous
-                        if sender_id != my_id {
-                            // Si oui, on décode après le client ID
-                            let audio_data = &data[8..];
-                            match decoder.decode_float(audio_data, &mut pcm_out, false) {
-                                Ok(len) => {
-                                    play_prod.push_slice(&pcm_out[..len]);
+                    if data.len() > 0 {
+                        let packet_type = data[0];
+                        match packet_type {
+                            0x01 => { // Audio
+                                if data.len() > 9 {
+                                    let sender_id = LittleEndian::read_u64(&data[1..9]);
+                                    if sender_id != my_id {
+                                        let audio_data = &data[9..];
+                                        match decoder.decode_float(audio_data, &mut pcm_out, false) {
+                                            Ok(len) => {
+                                                play_prod.push_slice(&pcm_out[..len]);
+                                            }
+                                            Err(e) => eprintln!("Decode error: {}", e),
+                                        }
+                                    }
                                 }
-                                Err(e) => eprintln!("Decode error: {}", e),
                             }
+                            0x03 => { // Client List
+                                // Payload is JSON
+                                if let Ok(list) = serde_json::from_slice::<Vec<ClientInfo>>(&data[1..]) {
+                                    *app_state.clients.lock().unwrap() = list;
+                                }
+                            }
+                            _ => {}
                         }
                     }
                 }

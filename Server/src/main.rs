@@ -1,8 +1,17 @@
 use quinn::{Endpoint, ServerConfig};
 use std::error::Error;
 use std::net::SocketAddr;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use tokio::sync::broadcast;
+use std::collections::HashMap;
+use serde::{Serialize, Deserialize};
+use byteorder::{ByteOrder, LittleEndian};
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct ClientInfo {
+    pub id: u64,
+    pub name: String,
+}
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
@@ -39,11 +48,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
     const MAX_PACKET_SIZE: usize = 1200;
     let (tx, _rx) = broadcast::channel::<Vec<u8>>(1000);
 
+    // Shared state for connected clients: SocketAddr -> ClientInfo
+    let clients_map: Arc<Mutex<HashMap<SocketAddr, ClientInfo>>> = Arc::new(Mutex::new(HashMap::new()));
+
     // boucle d'acceptation des clients
     loop {
         if let Some(incoming) = endpoint.accept().await {
             let tx = tx.clone();
             let mut rx = tx.subscribe();
+            let clients_map = clients_map.clone();
 
             tokio::spawn(async move {
                 match incoming.await {
@@ -52,20 +65,62 @@ async fn main() -> Result<(), Box<dyn Error>> {
                         println!("Nouveau client connecté: {}", remote);
 
                         // réception (Lecture des Datagrams)
+                        // réception (Lecture des Datagrams)
                         let conn_recv = connection.clone();
                         let tx_clone = tx.clone();
+                        let clients_map_recv = clients_map.clone();
+                        let remote_addr = remote;
+
                         let recv_task = tokio::spawn(async move {
                             loop {
                                 match conn_recv.read_datagram().await {
                                     Ok(data) => {
-                                        // Envoyer sur le channel broadcast
-                                        let _ = tx_clone.send(data.to_vec());
+                                        if data.len() > 0 {
+                                            match data[0] {
+                                                0x01 => { // Audio
+                                                    let _ = tx_clone.send(data.to_vec());
+                                                }
+                                                0x02 => { // Identify: [0x02][ID(8)][Name...]
+                                                    if data.len() > 9 {
+                                                        let id = LittleEndian::read_u64(&data[1..9]);
+                                                        let name = String::from_utf8_lossy(&data[9..]).to_string();
+                                                        
+                                                        {
+                                                            let mut map = clients_map_recv.lock().unwrap();
+                                                            map.insert(remote_addr, ClientInfo { id, name: name.clone() });
+                                                        }
+                                                        println!("Client identified: {} ({})", name, id);
+
+                                                        // Broadcast update
+                                                        let clients: Vec<ClientInfo> = clients_map_recv.lock().unwrap().values().cloned().collect();
+                                                        if let Ok(json) = serde_json::to_vec(&clients) {
+                                                            let mut packet = vec![0x03];
+                                                            packet.extend(json);
+                                                            let _ = tx_clone.send(packet);
+                                                        }
+                                                    }
+                                                }
+                                                _ => {}
+                                            }
+                                        }
                                     }
                                     Err(e) => {
-                                        eprintln!("Client {} déconnecté (lecture): {}", remote, e);
+                                        eprintln!("Client {} déconnecté (lecture): {}", remote_addr, e);
                                         break;
                                     }
                                 }
+                            }
+                            // Cleanup on disconnect
+                            {
+                                let mut map = clients_map_recv.lock().unwrap();
+                                map.remove(&remote_addr);
+                            }
+                            // Broadcast update
+                            let clients: Vec<ClientInfo> = clients_map_recv.lock().unwrap().values().cloned().collect();
+                            if let Ok(json) = serde_json::to_vec(&clients) {
+                                let mut packet = vec![0x03];
+                                packet.extend(json);
+                                let _ = tx_clone.send(packet);
                             }
                         });
 
