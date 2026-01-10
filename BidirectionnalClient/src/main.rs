@@ -119,6 +119,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let playback_rb = HeapRb::<f32>::new(48000 * 2);
     let (mut play_prod, play_cons) = playback_rb.split();
 
+    let in_port_name = in_port.name()?.to_string();
+    let out_port_name = out_port.name()?.to_string();
+
     let process = AudioProcessor { 
         in_port, 
         out_port, 
@@ -126,6 +129,26 @@ async fn main() -> Result<(), Box<dyn Error>> {
         consumer: play_cons 
     };
     let active_client = client.activate_async((), process)?;
+
+    // Auto-connect ports
+    // Connect System Capture -> Client Input
+    let system_captures = active_client.as_client().ports(Some("system:capture_.*"), None, PortFlags::empty());
+    for (i, port_name) in system_captures.iter().enumerate() {
+        if i >= 1 { break; } 
+        println!("🔗 Connecting {} -> {}", port_name, in_port_name);
+        if let Err(e) = active_client.as_client().connect_ports_by_name(port_name, &in_port_name) {
+            eprintln!("Failed to connect input: {}", e);
+        }
+    }
+
+    // Connect Client Output -> System Playback
+    let system_playbacks = active_client.as_client().ports(Some("system:playback_.*"), None, PortFlags::empty());
+    for port_name in system_playbacks.iter() {
+        println!("🔗 Connecting {} -> {}", out_port_name, port_name);
+        if let Err(e) = active_client.as_client().connect_ports_by_name(&out_port_name, port_name) {
+            eprintln!("Failed to connect output: {}", e);
+        }
+    }
 
     // Audio Loop
     let mut encoder = Encoder::new(SAMPLE_RATE, Channels::Mono, Application::Voip).unwrap();
