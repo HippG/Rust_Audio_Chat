@@ -176,22 +176,32 @@ async fn main() -> Result<(), Box<dyn Error>> {
     };
     let active_client = client.activate_async((), process)?;
 
-    // on fait automatiquement les linkage avec les entrées/sorties audio par défaut
-    let system_captures = active_client.as_client().ports(Some("system:capture_.*"), None, PortFlags::empty());
+    let in_port_name = "AudioClient:input";
+    let out_port_name = "AudioClient:output";
+
+    // Capture
+    let system_captures = active_client
+        .as_client()
+        .ports(Some("system:capture_.*"), None, PortFlags::IS_OUTPUT);
+
     for (i, port_name) in system_captures.iter().enumerate() {
-        if i >= 1 { break; } 
+        if i >= 1 { break; }
         println!("Connecting {} -> {}", port_name, in_port_name);
-        if let Err(e) = active_client.as_client().connect_ports_by_name(port_name, &in_port_name) {
-            eprintln!("Failed to connect input: {}", e);
-        }
+        active_client
+            .as_client()
+            .connect_ports_by_name(port_name, in_port_name)?;
     }
 
-    let system_playbacks = active_client.as_client().ports(Some("system:playback_.*"), None, PortFlags::empty());
+    // Playback
+    let system_playbacks = active_client
+        .as_client()
+        .ports(Some("system:playback_.*"), None, PortFlags::IS_INPUT);
+
     for port_name in system_playbacks.iter() {
         println!("Connecting {} -> {}", out_port_name, port_name);
-        if let Err(e) = active_client.as_client().connect_ports_by_name(&out_port_name, port_name) {
-            eprintln!("Failed to connect output: {}", e);
-        }
+        active_client
+            .as_client()
+            .connect_ports_by_name(out_port_name, port_name)?;
     }
 
     // opus encoder/decoder

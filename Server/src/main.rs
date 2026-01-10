@@ -1,6 +1,7 @@
 use quinn::{Endpoint, ServerConfig};
 use std::error::Error;
 use std::net::SocketAddr;
+use std::time::Duration;
 use std::sync::{Arc, Mutex};
 use tokio::sync::broadcast;
 use std::collections::HashMap;
@@ -36,10 +37,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
         quinn::crypto::rustls::QuicServerConfig::try_from(server_crypto)?,
     ));
 
-    let transport_config = Arc::get_mut(&mut server_config.transport).unwrap();
-    // activer les datagrammes
+    // Configure transports with timeouts
+    let mut transport_config = quinn::TransportConfig::default();
+    transport_config.max_idle_timeout(Some(quinn::VarInt::from_u32(5000).into())); // 5s timeout
+    transport_config.keep_alive_interval(Some(Duration::from_secs(2)));
     transport_config.datagram_receive_buffer_size(Some(1024 * 64));
     transport_config.datagram_send_buffer_size(1024 * 64);
+    
+    server_config.transport_config(Arc::new(transport_config));
 
     let endpoint = Endpoint::server(server_config, addr)?;
     println!("Serveur QUIC relay (Datagrams) en écoute sur {}", addr);
@@ -64,14 +69,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
                         let remote = connection.remote_address();
                         println!("Nouveau client connecté: {}", remote);
 
-                        // réception (Lecture des Datagrams)
-                        // réception (Lecture des Datagrams)
                         let conn_recv = connection.clone();
                         let tx_clone = tx.clone();
                         let clients_map_recv = clients_map.clone();
                         let remote_addr = remote;
 
-                        let recv_task = tokio::spawn(async move {
+                        // Receive Task
+                        let recv_fut = async move {
                             loop {
                                 match conn_recv.read_datagram().await {
                                     Ok(data) => {
@@ -80,7 +84,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                                                 0x01 => { // Audio
                                                     let _ = tx_clone.send(data.to_vec());
                                                 }
-                                                0x02 => { // Identify: [0x02][ID(8)][Name...]
+                                                0x02 => { // Identify
                                                     if data.len() > 9 {
                                                         let id = LittleEndian::read_u64(&data[1..9]);
                                                         let name = String::from_utf8_lossy(&data[9..]).to_string();
@@ -110,33 +114,38 @@ async fn main() -> Result<(), Box<dyn Error>> {
                                     }
                                 }
                             }
-                            // Cleanup on disconnect
-                            {
-                                let mut map = clients_map_recv.lock().unwrap();
-                                map.remove(&remote_addr);
-                            }
-                            // Broadcast update
-                            let clients: Vec<ClientInfo> = clients_map_recv.lock().unwrap().values().cloned().collect();
-                            if let Ok(json) = serde_json::to_vec(&clients) {
-                                let mut packet = vec![0x03];
-                                packet.extend(json);
-                                let _ = tx_clone.send(packet);
-                            }
-                        });
+                        };
 
-                        // tâche d'envoi (Broadcast vers Client)
+                        // Send Task
                         let conn_send = connection.clone();
-                        let send_task = tokio::spawn(async move {
+                        let send_fut = async move {
                             while let Ok(data) = rx.recv().await {
-                                if let Err(e) = conn_send.send_datagram(data.into()) {
-                                    eprintln!("Erreur envoi datagram vers {}: {}", remote, e);
+                                if let Err(_) = conn_send.send_datagram(data.into()) {
+                                    // Ignore send errors, recv loop will handle invalid connection
                                 }
                             }
-                        });
+                        };
 
-                        // attendre la fin de connexion
-                        let _ = tokio::join!(recv_task, send_task);
-                        println!("Client déconnecté: {}", remote);
+                        // Wait for either to finish (likely recv_fut due to error/timeout)
+                        tokio::select! {
+                            _ = recv_fut => {},
+                            _ = send_fut => {},
+                        }
+
+                        // Cleanup logic
+                        println!("Cleaning up client: {}", remote);
+                        {
+                            let mut map = clients_map.lock().unwrap();
+                            map.remove(&remote);
+                        }
+                        
+                        // Broadcast update (Client removed)
+                        let clients: Vec<ClientInfo> = clients_map.lock().unwrap().values().cloned().collect();
+                        if let Ok(json) = serde_json::to_vec(&clients) {
+                            let mut packet = vec![0x03];
+                            packet.extend(json);
+                            let _ = tx.send(packet);
+                        }
                     }
                     Err(e) => {
                         eprintln!("Erreur connexion: {}", e);
