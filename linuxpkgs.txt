@@ -1,3 +1,4 @@
 sudo apt install helvum jack-tools libjack-jackd2-dev pipewire-jack pipewire-pulse pulseaudio-utils build-essential
 
 pw-jack cargo run -- 35.180.152.237:8047
+ssh -i rustserver.pem ubuntu@35.180.152.237
