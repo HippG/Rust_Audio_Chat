@@ -1,0 +1,7 @@
+sudo apt install helvum
+jack-tools
+libjack-jackd2-dev
+pipewire-jack
+pipewire-pulse
+pulseaudio-utils
+hippo@hippo-ubuntu:~$ 
