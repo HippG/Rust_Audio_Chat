@@ -110,11 +110,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     // Jitter Buffer
     let mut packet_queue: VecDeque<Vec<u8>> = VecDeque::new();
-    let mut buffering = true;
-    let target_buffer_time = Duration::from_secs(5);
-    let target_packets = 250; 
-
-    println!("⏳ Buffering {}s of audio...", target_buffer_time.as_secs());
+    // Removed 5s delay. Play immediately.
+    
+    println!("▶️ Low-latency mode. Playing immediately...");
 
     loop {
         match connection.read_datagram().await {
@@ -122,29 +120,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 let packet = data.to_vec();
                 packet_queue.push_back(packet);
 
-                if buffering {
-                    if packet_queue.len() >= target_packets {
-                        buffering = false;
-                        println!("▶️ Buffering complete. Playing...");
-                    }
-                } else {
-                    // Playback Mode
-                    // On consomme la queue en fonction de la place dans le ringbuf
-                    // Mais ici on est piloté par l'ARRIVÉE des paquets (event loop read_datagram).
-                    // Si on reçoit plus vite qu'on joue, la queue grandit.
-                    // Si on reçoit moins vite, la queue se vide.
-                    
-                    // Pour chaque paquet reçu, on essaie d'en décoder un de la queue et de le push.
-                    // (Ou plusieurs si on a accumulé).
-                    
-                    while !packet_queue.is_empty() && producer.vacant_len() >= FRAME_SIZE {
-                        let pkt = packet_queue.pop_front().unwrap();
-                        match decoder.decode_float(&pkt, &mut pcm_out, false) {
-                            Ok(len) => {
-                                producer.push_slice(&pcm_out[..len]);
-                            }
-                            Err(e) => eprintln!("Decode error: {}", e),
+                // Playback Mode
+                while !packet_queue.is_empty() && producer.vacant_len() >= FRAME_SIZE {
+                    let pkt = packet_queue.pop_front().unwrap();
+                    match decoder.decode_float(&pkt, &mut pcm_out, false) {
+                        Ok(len) => {
+                            producer.push_slice(&pcm_out[..len]);
                         }
+                        Err(e) => eprintln!("Decode error: {}", e),
                     }
                 }
             }
