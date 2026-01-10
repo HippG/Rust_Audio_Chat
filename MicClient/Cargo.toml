@@ -1,9 +1,0 @@
-[package]
-name = "MicClient"
-version = "0.1.0"
-edition = "2021"
-
-[dependencies]
-jack = "0.13.4"
-opus = "0.3.1"
-ringbuf = "0.4.8"
