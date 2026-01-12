@@ -6,7 +6,6 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
 use std::net::SocketAddr;
-use std::collections::HashMap;
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct ClientInfo {
@@ -20,7 +19,7 @@ pub struct AppState {
     pub is_muted: Arc<Mutex<bool>>,
 }
 
-// Serve the HTML page
+// Serve the HTML page with clean, simple UI
 async fn index() -> Html<&'static str> {
     Html(r#"
 <!DOCTYPE html>
@@ -30,26 +29,142 @@ async fn index() -> Html<&'static str> {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Rust Audio Chat</title>
     <style>
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #121212; color: #e0e0e0; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; }
-        h1 { margin-bottom: 20px; }
-        .container { background-color: #1e1e1e; padding: 20px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); width: 300px; text-align: center; }
-        .client-list { list-style: none; padding: 0; margin: 20px 0; max-height: 200px; overflow-y: auto; text-align: left; }
-        .client-item { padding: 10px; border-bottom: 1px solid #333; display: flex; justify-content: space-between; }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: #1a1a1a;
+            color: #e0e0e0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container { 
+            background: #242424;
+            border-radius: 12px;
+            padding: 30px;
+            width: 100%;
+            max-width: 500px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+        }
+        h1 { 
+            font-size: 24px;
+            margin-bottom: 8px;
+            font-weight: 600;
+        }
+        .subtitle {
+            color: #888;
+            font-size: 14px;
+            margin-bottom: 24px;
+        }
+        .status-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 16px;
+            background: #2a2a2a;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-size: 14px;
+        }
+        .status-indicator {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #4ade80;
+        }
+        .dot.disconnected { background: #ef4444; }
+        .section-title {
+            font-size: 16px;
+            font-weight: 500;
+            margin-bottom: 12px;
+            color: #ccc;
+        }
+        .client-list {
+            background: #2a2a2a;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        .client-item {
+            padding: 14px 16px;
+            border-bottom: 1px solid #333;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
         .client-item:last-child { border-bottom: none; }
-        .client-id { font-size: 0.8em; color: #888; }
-        button { background-color: #007bff; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; font-size: 16px; transition: background-color 0.3s; }
-        button.muted { background-color: #dc3545; }
-        button:hover { opacity: 0.9; }
+        .client-info { display: flex; align-items: center; gap: 12px; }
+        .client-avatar {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            background: #444;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 600;
+            font-size: 14px;
+        }
+        .client-name { font-weight: 500; }
+        .client-id { 
+            font-size: 12px;
+            color: #666;
+            margin-top: 2px;
+        }
+        .empty-state {
+            text-align: center;
+            padding: 40px 20px;
+            color: #666;
+        }
+        button {
+            width: 100%;
+            padding: 14px;
+            border: none;
+            border-radius: 8px;
+            font-size: 15px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        button.mute {
+            background: #3b82f6;
+            color: white;
+        }
+        button.mute:hover { background: #2563eb; }
+        button.unmute {
+            background: #ef4444;
+            color: white;
+        }
+        button.unmute:hover { background: #dc2626; }
     </style>
 </head>
 <body>
-    <h1>Audio Chat</h1>
     <div class="container">
-        <h3>Connected Clients</h3>
-        <ul id="client-list" class="client-list">
-            <!-- Clients will be loaded here -->
-        </ul>
-        <button id="mute-btn" onclick="toggleMute()">Mute Microphone</button>
+        <h1>Audio Chat</h1>
+        
+        
+        <div class="status-bar">
+            <div class="status-indicator">
+                <div class="dot" id="status-dot"></div>
+                <span id="status-text">Connected</span>
+            </div>
+            <span style="color: #666; font-size: 13px;">Live</span>
+        </div>
+
+        <div class="section-title">Connected Clients (<span id="client-count">0</span>)</div>
+        <div class="client-list" id="client-list">
+            <div class="empty-state">No clients connected</div>
+        </div>
+
+        <button id="mute-btn" class="mute" onclick="toggleMute()">Mute Microphone</button>
     </div>
 
     <script>
@@ -58,27 +173,46 @@ async fn index() -> Html<&'static str> {
                 const response = await fetch('/status');
                 const data = await response.json();
                 
-                // Update Mute Button
+                // Update status
+                const statusDot = document.getElementById('status-dot');
+                const statusText = document.getElementById('status-text');
+                statusDot.classList.remove('disconnected');
+                statusText.textContent = 'Connected';
+                
+                // Update mute button
                 const btn = document.getElementById('mute-btn');
                 if (data.muted) {
                     btn.textContent = "Unmute Microphone";
-                    btn.classList.add('muted');
+                    btn.className = 'unmute';
                 } else {
                     btn.textContent = "Mute Microphone";
-                    btn.classList.remove('muted');
+                    btn.className = 'mute';
                 }
 
-                // Update Client List
+                // Update client list
                 const list = document.getElementById('client-list');
-                list.innerHTML = '';
-                data.clients.forEach(client => {
-                    const li = document.createElement('li');
-                    li.className = 'client-item';
-                    li.innerHTML = `<span>${client.name}</span> <span class="client-id">(${client.id})</span>`;
-                    list.appendChild(li);
-                });
+                const count = document.getElementById('client-count');
+                count.textContent = data.clients.length;
+                
+                if (data.clients.length === 0) {
+                    list.innerHTML = '<div class="empty-state">No clients connected</div>';
+                } else {
+                    list.innerHTML = data.clients.map(client => `
+                        <div class="client-item">
+                            <div class="client-info">
+                                <div class="client-avatar">${client.name.charAt(0).toUpperCase()}</div>
+                                <div>
+                                    <div class="client-name">${client.name}</div>
+                                    <div class="client-id">ID: ${client.id}</div>
+                                </div>
+                            </div>
+                        </div>
+                    `).join('');
+                }
             } catch (e) {
                 console.error("Error fetching status:", e);
+                document.getElementById('status-dot').classList.add('disconnected');
+                document.getElementById('status-text').textContent = 'Disconnected';
             }
         }
 
