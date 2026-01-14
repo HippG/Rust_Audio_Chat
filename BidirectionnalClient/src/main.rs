@@ -85,7 +85,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let server_addr = if args.len() > 1 {
         args[1].clone()
     } else {
-        "127.0.0.1:8047".to_string()
+        "13.37.250.113:8047".to_string()
     };
     
     // Web Port
