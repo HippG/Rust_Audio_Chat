@@ -79,8 +79,7 @@ impl rustls::client::danger::ServerCertVerifier for SkipServerVerification {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    // on récupère l'ip serveur passé en argument
-    // on récupère l'ip serveur passé en argument
+    // on récupère l'ip serveur passé en argument, sinon IP par défaut du serveur aws
     let args: Vec<String> = std::env::args().collect();
     let server_addr = if args.len() > 1 {
         args[1].clone()
@@ -88,23 +87,21 @@ async fn main() -> Result<(), Box<dyn Error>> {
         "13.37.250.113:8047".to_string()
     };
     
-    // Web Port
+    // same pour le port
     let web_port = if args.len() > 2 {
-        args[2].parse().unwrap_or(3000)
+        args[2].parse().unwrap_or(8047)
     } else {
-        3000
+        8047
     };
 
-    // Pseudonym
-    let my_name = if args.len() > 3 {
-        args[3].clone()
-    } else {
+    // demander le pseudonymne
+    let mut buffer = String::new();
+    while buffer.trim().is_empty() {
         print!("Enter your pseudonym: ");
         io::stdout().flush()?;
-        let mut buffer = String::new();
         io::stdin().read_line(&mut buffer)?;
-        buffer.trim().to_string()
-    };
+    }
+    let my_name = buffer.trim().to_string();
 
     // client ID random associé aux paquets audio
     let mut rng = rand::thread_rng();
@@ -113,7 +110,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     println!("Connecting to {}", server_addr);
 
-    // QUIC config
+    // QUIC config, skip TLS verification
     let mut crypto = rustls::ClientConfig::builder()
         .dangerous()
         .with_custom_certificate_verifier(Arc::new(SkipServerVerification))
