@@ -33,6 +33,7 @@ sudo apt install jack-tools libjack-jackd2-dev pipewire-jack pipewire-pulse puls
 ```
 Les crates utilisées sont : 
 #### Côté client:
+```
 jack = "0.13.4"
 opus = "0.3.1"
 ringbuf = "0.4.8"
@@ -45,8 +46,10 @@ axum = "0.7"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 tower-http = { version = "0.5", features = ["fs"] }
+```
 
 #### Côté serveur:
+```
 tokio = { version = "1", features = ["full"] }
 quinn = "0.11"
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
@@ -54,6 +57,7 @@ rcgen = "0.13"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 byteorder = "1.5"
+```
 
 ## Références 
 https://github.com/quinn-rs/quinn/tree/main/quinn/examples
