@@ -51,20 +51,10 @@ where
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    // on récupère l'ip serveur passé en argument, sinon IP par défaut du serveur aws
+    // IP du serveur 
     let args: Vec<String> = std::env::args().collect();
-    let server_addr = if args.len() > 1 {
-        args[1].clone()
-    } else {
-        "13.37.250.113:8047".to_string()
-    };
+    let server_addr = "13.37.250.113:8047".to_string();
     
-    // same pour le port
-    let web_port = if args.len() > 2 {
-        args[2].parse().unwrap_or(8047)
-    } else {
-        8047
-    };
 
     // demander le pseudonymne
     let mut buffer = String::new();
@@ -110,7 +100,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // Start Web Server
     let web_state = app_state.clone();
     tokio::spawn(async move {
-        interface::start_web_server(web_state, web_port).await;
+        interface::start_web_server(web_state, 3000).await;
     });
 
     // Send Indentify Packet
