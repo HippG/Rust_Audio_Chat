@@ -20,7 +20,7 @@ pub struct AppState {
     pub is_muted: Arc<Mutex<bool>>,
 }
 
-// Serve the HTML page with clean, simple UI
+// page HTML
 async fn index() -> Html<&'static str> {
     Html(r#"
 <!DOCTYPE html>
@@ -269,7 +269,7 @@ pub async fn start_web_server(state: AppState, port: u16) {
         .with_state(state);
 
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
-    println!("Web GUI running at http://127.0.0.1:{}", port);
+    println!("Interface web run sur http://127.0.0.1:{}", port);
     
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
     axum::serve(listener, app).await.unwrap();

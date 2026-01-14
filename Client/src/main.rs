@@ -59,7 +59,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // demander le pseudonymne
     let mut buffer = String::new();
     while buffer.trim().is_empty() {
-        print!("Enter your pseudonym: ");
+        print!("Insérer votre pseudo: ");
         io::stdout().flush()?;
         io::stdin().read_line(&mut buffer)?;
     }
@@ -68,11 +68,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // client ID random associé aux paquets audio
     let mut rng = rand::thread_rng();
     let my_id: u64 = rng.gen();
-    println!("Client ID: {:}", my_id);
+    println!("ID du client : {:}", my_id);
 
-    println!("Connecting to {}", server_addr);
+    println!("Connecté à {}", server_addr);
 
-    // QUIC config, skip TLS verification
+    // configuration quic avec les skip verification
     let mut crypto = rustls::ClientConfig::builder()
         .dangerous()
         .with_custom_certificate_verifier(Arc::new(SkipServerVerification))
@@ -89,22 +89,22 @@ async fn main() -> Result<(), Box<dyn Error>> {
     endpoint.set_default_client_config(client_config);
 
     let connection = endpoint.connect(server_addr.parse()?, "localhost")?.await?;
-    println!("Connected to server");
+    println!("Connecté au serveur");
 
-    // Initialize App State
+    // Intialiser l'état de l'app web
     let app_state = AppState {
         clients: Arc::new(Mutex::new(Vec::new())),
         is_muted: Arc::new(Mutex::new(false)),
     };
 
-    // Start Web Server
+    // démarre le serveur web 
     let web_state = app_state.clone();
     tokio::spawn(async move {
         interface::start_web_server(web_state, 3000).await;
     });
 
-    // Send Indentify Packet
-    // Packet Type 0x02: [Type(1)] + [ID(8)] + [Name(UTF8)]
+    // envoie du paquet d'identification
+    // [Type(1)] + [ID(8)] + [Name(UTF8)]
     let name_bytes = my_name.as_bytes();
     let mut id_packet = Vec::with_capacity(1 + 8 + name_bytes.len());
     id_packet.push(0x02);
@@ -112,7 +112,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     id_packet.extend_from_slice(name_bytes);
     connection.send_datagram(id_packet.into())?;
 
-    // JACK config
+    // configuration de jack 
     let (client, _status) = Client::new("AudioClient", ClientOptions::NO_START_SERVER)?; // on redémarre pas le serveur pw qui tourne au démarrage linux
 
     let in_port_name = "input";
@@ -145,7 +145,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     for (i, port_name) in system_captures.iter().enumerate() {
         if i >= 1 { break; }
-        println!("Connecting {} -> {}", port_name, in_port_name);
+        println!("Connecté {} -> {}", port_name, in_port_name);
         active_client
             .as_client()
             .connect_ports_by_name(port_name, in_port_name)?;
@@ -157,7 +157,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .ports(Some("system:playback_.*"), None, PortFlags::IS_INPUT);
 
     for port_name in system_playbacks.iter() {
-        println!("Connecting {} -> {}", out_port_name, port_name);
+        println!("Connecté {} -> {}", out_port_name, port_name);
         active_client
             .as_client()
             .connect_ports_by_name(out_port_name, port_name)?;
@@ -179,7 +179,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let app_state_send = app_state.clone();
     let send_task = tokio::spawn(async move {
         let app_state = app_state_send; // capture name
-        println!("Audio capture started");
+        println!("Capture audio démarrée");
         loop {
             // Vérif si on a assez de samples
             if cap_cons.occupied_len() >= FRAME_SIZE {
@@ -202,7 +202,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                             let _ = conn_send.send_datagram(final_packet.into());
                         }
                     }
-                    Err(e) => eprintln!("Encode error: {}", e),
+                    Err(e) => eprintln!("Erreur d'encodage: {}", e),
                 }
             } else {
                 tokio::time::sleep(Duration::from_millis(1)).await;
@@ -212,14 +212,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     // RECEIVE
     let recv_task = tokio::spawn(async move {
-        println!("Playback started");
+        println!("Playback démarré");
         loop {
             match conn_recv.read_datagram().await {
                 Ok(data) => {
                     if data.len() > 0 {
                         let packet_type = data[0];
                         match packet_type {
-                            0x01 => { // Audio
+                            0x01 => { // paquet audio
                                 if data.len() > 9 {
                                     let sender_id = LittleEndian::read_u64(&data[1..9]);
                                     if sender_id != my_id {
@@ -228,13 +228,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
                                             Ok(len) => {
                                                 play_prod.push_slice(&pcm_out[..len]);
                                             }
-                                            Err(e) => eprintln!("Decode error: {}", e),
+                                            Err(e) => eprintln!("Erreur décodage: {}", e),
                                         }
                                     }
                                 }
                             }
-                            0x03 => { // Client List
-                                // Payload is JSON
+                            0x03 => { // liste des clients
+                                // vérifier si le c'est du JSON
                                 if let Ok(list) = serde_json::from_slice::<Vec<ClientInfo>>(&data[1..]) {
                                     *app_state.clients.lock().unwrap() = list;
                                 }
@@ -244,7 +244,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     }
                 }
                 Err(e) => {
-                    eprintln!("Rx Error: {}", e);
+                    eprintln!("Errer Rx: {}", e);
                     break;
                 }
             }
