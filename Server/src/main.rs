@@ -50,7 +50,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     println!("Serveur QUIC relay (Datagrams) en écoute sur {}", addr);
 
     // canal de broadcast pour envoyer les messages entre clients
-    const MAX_PACKET_SIZE: usize = 1200;
+
     let (tx, _rx) = broadcast::channel::<Vec<u8>>(1000);
 
     // Shared state for connected clients: SocketAddr -> ClientInfo

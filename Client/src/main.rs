@@ -4,7 +4,7 @@ use ringbuf::{HeapRb};
 use ringbuf::traits::*;
 use std::sync::Arc;
 use std::time::Duration;
-use std::collections::VecDeque;
+
 use quinn::{ClientConfig, Endpoint, TransportConfig};
 use std::error::Error;
 use rand::Rng;

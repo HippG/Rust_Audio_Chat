@@ -12,19 +12,51 @@ L'architecture est détaillée ci dessous :
 ## Fonctionnalités client
 Notre système se connecte automatiquement aux périphériques audios entrée/sortie par défaut de la machine client, à travers le serveur audio Pipewire et son API JACK.
 On ouvre aussi un serveur web pour l'interface côté client.
-Le client choisit son pseudo au démarrage et se connecte au serveur relais pour lui envoyer les données audio via QUIC.
+Le client choisit son pseudo au démarrage et se connecte au serveur relais pour échanger les paquets via QUIC.
 
 ## Fonctionnalités serveur
-Le serveur relais reçoit les données audio des clients et les diffuse à tous les clients connectés.
+Le serveur relais reçoit les paquets audio des clients et les diffuse à tous les clients connectés.
 Les paquets sont ensuite triés côté client pour ne pas rejouer son propre audio
+Diffuse également la liste des clients connectés.
 
-## Détails des paquets
+## Détail des paquets
 Il y a trois types de paquets échangés, identifiés par un ID au début du paquet :
 - 0x01 : paquet audio, contient l'ID du client
 - 0x02 : paquet d'identification pour transmettre le pseudo client au serveur
 - 0x03 : paquet de broadcast de la liste des clients connectés 
 
+## Installation
+Voici les paquets nécessaire côté client :
+```
+sudo apt-get update
+sudo apt install jack-tools libjack-jackd2-dev pipewire-jack pipewire-pulse pulseaudio-utils build-essential cmake
+```
+Les crates utilisées sont : 
+#### Côté client:
+jack = "0.13.4"
+opus = "0.3.1"
+ringbuf = "0.4.8"
+tokio = { version = "1", features = ["full"] }
+quinn = "0.11"
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
+rand = "0.8"
+byteorder = "1.5"
+axum = "0.7"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tower-http = { version = "0.5", features = ["fs"] }
 
+#### Côté serveur:
+tokio = { version = "1", features = ["full"] }
+quinn = "0.11"
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
+rcgen = "0.13"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+byteorder = "1.5"
 
 ## Références 
+https://github.com/quinn-rs/quinn/tree/main/quinn/examples
+https://docs.rs/ringbuf/latest/ringbuf/
+https://docs.rs/opus/latest/opus/
 
