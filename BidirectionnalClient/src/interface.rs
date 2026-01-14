@@ -6,6 +6,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
 use std::net::SocketAddr;
+use tower_http::services::ServeDir;
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct ClientInfo {
@@ -124,6 +125,12 @@ async fn index() -> Html<&'static str> {
             padding: 40px 20px;
             color: #666;
         }
+        .logo {
+            display: block;
+            margin: 0 auto -10px auto;
+            width: 150px;         
+            height: auto;
+        }
         button {
             width: 100%;
             padding: 14px;
@@ -134,6 +141,10 @@ async fn index() -> Html<&'static str> {
             cursor: pointer;
             transition: all 0.2s;
         }
+        h1 {
+            text-align : center;
+            padding-bottom : 10px;
+        }
         button.mute {
             background: #3b82f6;
             color: white;
@@ -143,25 +154,24 @@ async fn index() -> Html<&'static str> {
             background: #ef4444;
             color: white;
         }
+        
         button.unmute:hover { background: #dc2626; }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>Audio Chat</h1>
-        
-        
+        <img src="/static/logo.png" alt="RustCord Logo" class="logo">
+        <h1>RustCord</h1>
         <div class="status-bar">
             <div class="status-indicator">
                 <div class="dot" id="status-dot"></div>
-                <span id="status-text">Connected</span>
+                <span id="status-text">Connecté</span>
             </div>
-            <span style="color: #666; font-size: 13px;">Live</span>
         </div>
 
-        <div class="section-title">Connected Clients (<span id="client-count">0</span>)</div>
+        <div class="section-title">Personnes connectées (<span id="client-count">0</span>)</div>
         <div class="client-list" id="client-list">
-            <div class="empty-state">No clients connected</div>
+            <div class="empty-state">Aucune personnes connectées</div>
         </div>
 
         <button id="mute-btn" class="mute" onclick="toggleMute()">Mute Microphone</button>
@@ -177,15 +187,15 @@ async fn index() -> Html<&'static str> {
                 const statusDot = document.getElementById('status-dot');
                 const statusText = document.getElementById('status-text');
                 statusDot.classList.remove('disconnected');
-                statusText.textContent = 'Connected';
+                statusText.textContent = 'Connecté';
                 
                 // Update mute button
                 const btn = document.getElementById('mute-btn');
                 if (data.muted) {
-                    btn.textContent = "Unmute Microphone";
+                    btn.textContent = "Demute micro";
                     btn.className = 'unmute';
                 } else {
-                    btn.textContent = "Mute Microphone";
+                    btn.textContent = "Mute micro";
                     btn.className = 'mute';
                 }
 
@@ -212,7 +222,7 @@ async fn index() -> Html<&'static str> {
             } catch (e) {
                 console.error("Error fetching status:", e);
                 document.getElementById('status-dot').classList.add('disconnected');
-                document.getElementById('status-text').textContent = 'Disconnected';
+                document.getElementById('status-text').textContent = 'Déconnecté';
             }
         }
 
@@ -255,6 +265,7 @@ pub async fn start_web_server(state: AppState, port: u16) {
         .route("/", get(index))
         .route("/status", get(get_status))
         .route("/mute", post(toggle_mute))
+        .nest_service("/static", ServeDir::new("static"))
         .with_state(state);
 
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
