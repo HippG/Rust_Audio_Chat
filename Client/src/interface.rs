@@ -8,15 +8,8 @@ use std::sync::{Arc, Mutex};
 use std::net::SocketAddr;
 use tower_http::services::ServeDir;
 
-#[derive(Clone, Serialize, Deserialize, Debug)]
-pub struct ClientInfo {
-    pub id: u64,
-    pub name: String,
-}
-
 #[derive(Clone)]
 pub struct AppState {
-    pub clients: Arc<Mutex<Vec<ClientInfo>>>,
     pub is_muted: Arc<Mutex<bool>>,
 }
 
@@ -53,77 +46,13 @@ async fn index() -> Html<&'static str> {
             font-size: 24px;
             margin-bottom: 8px;
             font-weight: 600;
+            text-align : center;
+            padding-bottom : 10px;
         }
         .subtitle {
             color: #888;
             font-size: 14px;
             margin-bottom: 24px;
-        }
-        .status-bar {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 12px 16px;
-            background: #2a2a2a;
-            border-radius: 8px;
-            margin-bottom: 20px;
-            font-size: 14px;
-        }
-        .status-indicator {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-        .dot {
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            background: #4ade80;
-        }
-        .dot.disconnected { background: #ef4444; }
-        .section-title {
-            font-size: 16px;
-            font-weight: 500;
-            margin-bottom: 12px;
-            color: #ccc;
-        }
-        .client-list {
-            background: #2a2a2a;
-            border-radius: 8px;
-            margin-bottom: 20px;
-            max-height: 300px;
-            overflow-y: auto;
-        }
-        .client-item {
-            padding: 14px 16px;
-            border-bottom: 1px solid #333;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        .client-item:last-child { border-bottom: none; }
-        .client-info { display: flex; align-items: center; gap: 12px; }
-        .client-avatar {
-            width: 36px;
-            height: 36px;
-            border-radius: 50%;
-            background: #444;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-weight: 600;
-            font-size: 14px;
-        }
-        .client-name { font-weight: 500; }
-        .client-id { 
-            font-size: 12px;
-            color: #666;
-            margin-top: 2px;
-        }
-        .empty-state {
-            text-align: center;
-            padding: 40px 20px;
-            color: #666;
         }
         .logo {
             display: block;
@@ -141,10 +70,6 @@ async fn index() -> Html<&'static str> {
             cursor: pointer;
             transition: all 0.2s;
         }
-        h1 {
-            text-align : center;
-            padding-bottom : 10px;
-        }
         button.mute {
             background: #3b82f6;
             color: white;
@@ -154,7 +79,6 @@ async fn index() -> Html<&'static str> {
             background: #ef4444;
             color: white;
         }
-        
         button.unmute:hover { background: #dc2626; }
     </style>
 </head>
@@ -162,18 +86,7 @@ async fn index() -> Html<&'static str> {
     <div class="container">
         <img src="/static/logo.png" alt="RustCord Logo" class="logo">
         <h1>RustCord</h1>
-        <div class="status-bar">
-            <div class="status-indicator">
-                <div class="dot" id="status-dot"></div>
-                <span id="status-text">Connecté</span>
-            </div>
-        </div>
-
-        <div class="section-title">Personnes connectées (<span id="client-count">0</span>)</div>
-        <div class="client-list" id="client-list">
-            <div class="empty-state">Aucune personnes connectées</div>
-        </div>
-
+        
         <button id="mute-btn" class="mute" onclick="toggleMute()">Mute Microphone</button>
     </div>
 
@@ -182,12 +95,6 @@ async fn index() -> Html<&'static str> {
             try {
                 const response = await fetch('/status');
                 const data = await response.json();
-                
-                // Update status
-                const statusDot = document.getElementById('status-dot');
-                const statusText = document.getElementById('status-text');
-                statusDot.classList.remove('disconnected');
-                statusText.textContent = 'Connecté';
                 
                 // Update mute button
                 const btn = document.getElementById('mute-btn');
@@ -198,31 +105,8 @@ async fn index() -> Html<&'static str> {
                     btn.textContent = "Mute micro";
                     btn.className = 'mute';
                 }
-
-                // Update client list
-                const list = document.getElementById('client-list');
-                const count = document.getElementById('client-count');
-                count.textContent = data.clients.length;
-                
-                if (data.clients.length === 0) {
-                    list.innerHTML = '<div class="empty-state">No clients connected</div>';
-                } else {
-                    list.innerHTML = data.clients.map(client => `
-                        <div class="client-item">
-                            <div class="client-info">
-                                <div class="client-avatar">${client.name.charAt(0).toUpperCase()}</div>
-                                <div>
-                                    <div class="client-name">${client.name}</div>
-                                    <div class="client-id">ID: ${client.id}</div>
-                                </div>
-                            </div>
-                        </div>
-                    `).join('');
-                }
             } catch (e) {
                 console.error("Error fetching status:", e);
-                document.getElementById('status-dot').classList.add('disconnected');
-                document.getElementById('status-text').textContent = 'Déconnecté';
             }
         }
 
@@ -246,13 +130,11 @@ async fn index() -> Html<&'static str> {
 #[derive(Serialize)]
 struct StatusResponse {
     muted: bool,
-    clients: Vec<ClientInfo>,
 }
 
 async fn get_status(State(state): State<AppState>) -> Json<StatusResponse> {
-    let clients = state.clients.lock().unwrap().clone();
     let muted = *state.is_muted.lock().unwrap();
-    Json(StatusResponse { muted, clients })
+    Json(StatusResponse { muted })
 }
 
 async fn toggle_mute(State(state): State<AppState>) {
