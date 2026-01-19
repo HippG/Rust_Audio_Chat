@@ -13,7 +13,7 @@ use std::sync::Mutex;
 mod interface;
 mod tls_skip;
 use tls_skip::SkipServerVerification;
-use interface::AppState;
+use interface::{AppState, ClientInfo};
 use std::io::{self, Write};
 
 const SAMPLE_RATE: u32 = 48000;
@@ -93,6 +93,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     // Intialiser l'état de l'app web
     let app_state = AppState {
+        clients: Arc::new(Mutex::new(Vec::new())),
         is_muted: Arc::new(Mutex::new(false)),
     };
 
@@ -232,7 +233,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
                                     }
                                 }
                             }
-
+                            0x03 => { // liste des clients
+                                // vérifier si le c'est du JSON
+                                if let Ok(list) = serde_json::from_slice::<Vec<ClientInfo>>(&data[1..]) {
+                                    *app_state.clients.lock().unwrap() = list;
+                                }
+                            }
                             _ => {}
                         }
                     }
