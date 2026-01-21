@@ -120,7 +120,7 @@
                             let conn_send = connection.clone();
                             let send_fut = async move {
                                 while let Ok(data) = rx.recv().await {
-                                    conn_send.send_datagram(data.into()) 
+                                    conn_send.send_datagram(data.into());
                                 }
                             };
 
