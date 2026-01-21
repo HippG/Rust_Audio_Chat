@@ -59,28 +59,6 @@ async fn index() -> Html<&'static str> {
             font-size: 14px;
             margin-bottom: 24px;
         }
-        .status-bar {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 12px 16px;
-            background: #2a2a2a;
-            border-radius: 8px;
-            margin-bottom: 20px;
-            font-size: 14px;
-        }
-        .status-indicator {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-        .dot {
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            background: #4ade80;
-        }
-        .dot.disconnected { background: #ef4444; }
         .section-title {
             font-size: 16px;
             font-weight: 500;
@@ -162,13 +140,7 @@ async fn index() -> Html<&'static str> {
     <div class="container">
         <img src="/static/logo.png" alt="RustCord Logo" class="logo">
         <h1>RustCord</h1>
-        <div class="status-bar">
-            <div class="status-indicator">
-                <div class="dot" id="status-dot"></div>
-                <span id="status-text">Connecté</span>
-            </div>
-        </div>
-
+        
         <div class="section-title">Personnes connectées (<span id="client-count">0</span>)</div>
         <div class="client-list" id="client-list">
             <div class="empty-state">Aucune personnes connectées</div>
@@ -182,12 +154,6 @@ async fn index() -> Html<&'static str> {
             try {
                 const response = await fetch('/status');
                 const data = await response.json();
-                
-                // Update status
-                const statusDot = document.getElementById('status-dot');
-                const statusText = document.getElementById('status-text');
-                statusDot.classList.remove('disconnected');
-                statusText.textContent = 'Connecté';
                 
                 // Update mute button
                 const btn = document.getElementById('mute-btn');
@@ -221,8 +187,6 @@ async fn index() -> Html<&'static str> {
                 }
             } catch (e) {
                 console.error("Error fetching status:", e);
-                document.getElementById('status-dot').classList.add('disconnected');
-                document.getElementById('status-text').textContent = 'Déconnecté';
             }
         }
 
